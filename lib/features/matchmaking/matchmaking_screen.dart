@@ -256,162 +256,313 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen>
     super.dispose();
   }
 
+  /// Returns the accent colour for the current mode (matches lobby card colours)
+  Color get _modeAccent {
+    switch (widget.mode) {
+      case PuzzleMode.oneVsOne: return AppColors.neonOrange;
+      case PuzzleMode.twoVsTwo: return AppColors.neonCyan;
+      case PuzzleMode.friends:  return AppColors.neonPink;
+      default:                  return AppColors.neonCyan;
+    }
+  }
+
+  IconData get _modeIcon {
+    switch (widget.mode) {
+      case PuzzleMode.oneVsOne: return Icons.flash_on;
+      case PuzzleMode.twoVsTwo: return Icons.groups_outlined;
+      case PuzzleMode.friends:  return Icons.celebration_outlined;
+      default:                  return Icons.gamepad_outlined;
+    }
+  }
+
+  String get _modeLabel {
+    switch (widget.mode) {
+      case PuzzleMode.oneVsOne: return '1 vs 1';
+      case PuzzleMode.twoVsTwo: return '2 vs 2';
+      case PuzzleMode.friends:  return 'Amigos';
+      default:                  return widget.mode.displayName;
+    }
+  }
+
+  String get _modeSubtitle {
+    switch (widget.mode) {
+      case PuzzleMode.oneVsOne: return 'Rival online en tiempo real';
+      case PuzzleMode.twoVsTwo: return 'Armen el puzzle en equipo';
+      case PuzzleMode.friends:  return '3-4 jugadores, primero gana';
+      default:                  return '';
+    }
+  }
+
   Widget _buildConfigScreen() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+    final accent = _modeAccent;
+
+    return Stack(
       children: [
-        const SizedBox(height: AppSpacing.xxl),
-        Text(
-          'Configuración',
-          style: context.textTheme.headlineMedium,
-          textAlign: TextAlign.center,
+        // Orbs
+        Positioned(
+          top: -60, right: -80,
+          child: _ScreenOrb(color: accent, size: 280, opacity: 0.12),
         ),
-        const SizedBox(height: AppSpacing.xl),
-        GlassCard(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Dificultad (Filas x Columnas): ${_gridSize.toInt()}x${_gridSize.toInt()}', style: context.textTheme.titleMedium),
-              const SizedBox(height: AppSpacing.sm),
-              Slider(
-                value: _gridSize,
-                min: 3,
-                max: 10,
-                divisions: 7,
-                label: '${_gridSize.toInt()}x${_gridSize.toInt()}',
-                activeColor: context.colors.primary,
-                onChanged: (val) {
-                  setState(() {
-                    _gridSize = val;
-                  });
-                },
+        Positioned(
+          bottom: -100, left: -60,
+          child: _ScreenOrb(color: AppColors.neonPurple, size: 260, opacity: 0.09),
+        ),
+
+        // Content
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+
+            // ── Mode header ─────────────────────────────────────────────
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [accent, accent.withValues(alpha: 0.5)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: AppShadows.shadowNeon(accent, radius: 14),
+                ),
+                child: Icon(_modeIcon, color: Colors.white, size: 22),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              if (widget.mode == PuzzleMode.vsAI) ...[
-                Text('Nivel de la IA', style: context.textTheme.titleMedium),
-                const SizedBox(height: AppSpacing.xs),
-                DropdownButtonFormField<Difficulty>(
-                  value: _aiDifficulty,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+              const SizedBox(width: 14),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(_modeLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.3,
+                    )),
+                Text(_modeSubtitle,
+                    style: TextStyle(
+                      color: AppColors.textGray,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    )),
+              ]),
+              const Spacer(),
+              // Ghost back button
+              GestureDetector(
+                onTap: () => context.goNamed(LobbyScreen.routeName),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.textGray.withValues(alpha: 0.20)),
                   ),
-                  items: Difficulty.values.map((d) {
-                    return DropdownMenuItem(value: d, child: Text(d.name.toUpperCase()));
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _aiDifficulty = val);
-                  },
+                  child: const Icon(Icons.arrow_back_ios_new_rounded,
+                      color: AppColors.textGray, size: 18),
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Text('Personalidad de la IA', style: context.textTheme.titleMedium),
-                const SizedBox(height: AppSpacing.xs),
-                DropdownButtonFormField<AIPersonality>(
-                  value: _aiPersonality,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+              ),
+            ]),
+
+            const SizedBox(height: 28),
+
+            // ── Config card ─────────────────────────────────────────────
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [const Color(0xFF141C30), const Color(0xFF0C111F)],
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: accent.withValues(alpha: 0.18), width: 1),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.6), blurRadius: 32, offset: const Offset(0, 12)),
+                  BoxShadow(color: accent.withValues(alpha: 0.06), blurRadius: 40),
+                ],
+              ),
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Section label
+                  const Text('TAMAÑO DEL TABLERO', style: TextStyle(
+                    color: AppColors.textGray,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                  )),
+                  const SizedBox(height: 12),
+
+                  // Grid chip row — reusing same widget as dialogs
+                  _GridSizeRow(
+                    selected: _gridSize.toInt(),
+                    accent: accent,
+                    onChanged: (v) => setState(() => _gridSize = v.toDouble()),
                   ),
-                  items: AIPersonality.values.map((p) {
-                    return DropdownMenuItem(value: p, child: Text(p.name.toUpperCase()));
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _aiPersonality = val);
-                  },
+
+                  // Hint
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Center(
+                      child: Text(
+                        '${_gridSize.toInt()}×${_gridSize.toInt()} · ${(_gridSize * _gridSize).toInt()} piezas',
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Spacer(),
+
+            // ── Comenzar button (pulsing glow) ───────────────────────────
+            _PulsingButton(
+              label: 'Comenzar',
+              icon: Icons.play_arrow_rounded,
+              accent: accent,
+              onTap: _beginSearch,
+            ),
+            const SizedBox(height: 14),
+
+            // Ghost volver
+            GestureDetector(
+              onTap: () => context.goNamed(LobbyScreen.routeName),
+              child: Container(
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.textGray.withValues(alpha: 0.20)),
                 ),
-              ],
-            ],
-          ),
-        ),
-        const Spacer(),
-        FilledButton(
-          onPressed: _beginSearch,
-          style: FilledButton.styleFrom(
-            backgroundColor: context.colors.primary,
-            minimumSize: const Size(double.infinity, 56),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radiusLg)),
-          ),
-          child: const Text('Comenzar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        TextButton(
-          onPressed: () => context.goNamed(LobbyScreen.routeName),
-          child: const Text('Volver'),
+                child: const Text('Volver',
+                    style: TextStyle(
+                      color: AppColors.textGray,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    )),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
       ],
     );
   }
 
   Widget _buildSearchingScreen() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    final accent = _modeAccent;
+
+    return Stack(
       children: [
-        const SizedBox(height: AppSpacing.xl),
-        Text(
-          _statusMessage,
-          style: context.textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        ScaleTransition(
-          scale: _pulseAnimation,
-          child: Text(
-            '⏳ ${TimeUtils.formatSeconds(_elapsedSeconds)}',
-            style: context.textTheme.displayLarge?.copyWith(
-              color: context.colors.primary,
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xxl),
-        _ShimmerPreviewPuzzle(mode: widget.mode, gridSize: _gridSize.toInt()),
-        const SizedBox(height: AppSpacing.xl),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 500),
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.0, 0.2),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              ),
-            );
-          },
-          child: Text(
-            _tips[_currentTipIndex],
-            key: ValueKey<int>(_currentTipIndex),
-            style: context.textTheme.bodyMedium?.copyWith(
-              fontStyle: FontStyle.italic,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const Spacer(),
-        Padding(
-          padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-          child: OutlinedButton.icon(
-            onPressed: _onCancelPressed,
-            icon: const Icon(Icons.close),
-            label: const Text('Cancelar Búsqueda'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: context.colors.error,
-              side: BorderSide(color: context.colors.error.withOpacity(0.5)),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.md,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-              ),
-              textStyle: const TextStyle(
-                fontSize: 16,
+        // Orbs
+        Positioned(top: -60, right: -80,
+          child: _ScreenOrb(color: accent, size: 260, opacity: 0.10)),
+        Positioned(bottom: -100, left: -60,
+          child: _ScreenOrb(color: AppColors.neonPurple, size: 240, opacity: 0.08)),
+
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SizedBox(height: 24),
+
+            // Status text
+            Text(
+              _statusMessage,
+              style: const TextStyle(
+                color: AppColors.textGray,
+                fontSize: 15,
                 fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+
+            // Timer with neon glow
+            ScaleTransition(
+              scale: _pulseAnimation,
+              child: ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [accent, AppColors.neonPurple],
+                ).createShader(bounds),
+                child: Text(
+                  '⏳ ${TimeUtils.formatSeconds(_elapsedSeconds)}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 48,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1,
+                  ),
+                ),
               ),
             ),
-          ),
+
+            const SizedBox(height: 32),
+            _ShimmerPreviewPuzzle(mode: widget.mode, gridSize: _gridSize.toInt()),
+            const SizedBox(height: 24),
+
+            // Rotating tip
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 500),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.2), end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: Container(
+                key: ValueKey<int>(_currentTipIndex),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: accent.withValues(alpha: 0.15)),
+                ),
+                child: Text(
+                  _tips[_currentTipIndex],
+                  style: const TextStyle(
+                    color: AppColors.textGray,
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+
+            const Spacer(),
+
+            // Cancel button
+            GestureDetector(
+              onTap: _onCancelPressed,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.neonPink.withValues(alpha: 0.35)),
+                  color: AppColors.neonPink.withValues(alpha: 0.08),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.close_rounded, color: AppColors.neonPink.withValues(alpha: 0.8), size: 18),
+                    const SizedBox(width: 8),
+                    Text('Cancelar búsqueda',
+                        style: TextStyle(
+                          color: AppColors.neonPink.withValues(alpha: 0.85),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        )),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
         ),
       ],
     );
@@ -420,14 +571,183 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: context.colors.background,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.xl,
+      body: Container(
+        decoration: const BoxDecoration(gradient: AppGradients.background),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            child: _isConfiguring ? _buildConfigScreen() : _buildSearchingScreen(),
           ),
-          child: _isConfiguring ? _buildConfigScreen() : _buildSearchingScreen(),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Screen-level background orb ──────────────────────────────────────────────
+
+class _ScreenOrb extends StatelessWidget {
+  const _ScreenOrb({required this.color, required this.size, required this.opacity});
+  final Color color;
+  final double size;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [color.withValues(alpha: opacity), Colors.transparent],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Grid size chip row (inline) ───────────────────────────────────────────────
+
+class _GridSizeRow extends StatelessWidget {
+  const _GridSizeRow({
+    required this.selected,
+    required this.accent,
+    required this.onChanged,
+  });
+
+  final int selected;
+  final Color accent;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [3, 4, 5, 6, 7, 8].map((size) {
+        final isActive = size == selected;
+        return GestureDetector(
+          onTap: () => onChanged(size),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 44, height: 44,
+            decoration: BoxDecoration(
+              gradient: isActive
+                  ? LinearGradient(colors: [accent, accent.withValues(alpha: 0.6)])
+                  : null,
+              color: isActive ? null : AppColors.bgCardLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isActive ? accent.withValues(alpha: 0.75) : AppColors.textMuted.withValues(alpha: 0.30),
+                width: isActive ? 1.5 : 1,
+              ),
+              boxShadow: isActive ? AppShadows.shadowNeon(accent, radius: 12) : [],
+            ),
+            alignment: Alignment.center,
+            child: Text('${size}x$size',
+              style: TextStyle(
+                color: isActive ? Colors.white : AppColors.textGray,
+                fontSize: 11,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+              )),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ── Pulsing CTA button ────────────────────────────────────────────────────────
+
+class _PulsingButton extends StatefulWidget {
+  const _PulsingButton({
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  State<_PulsingButton> createState() => _PulsingButtonState();
+}
+
+class _PulsingButtonState extends State<_PulsingButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _glow;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _glow = Tween<double>(begin: 0.55, end: 1.0)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _glow,
+      builder: (_, child) => Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: widget.accent.withValues(alpha: 0.55 * _glow.value),
+              blurRadius: 26,
+              spreadRadius: -2,
+            ),
+            BoxShadow(
+              color: AppColors.neonPurple.withValues(alpha: 0.25 * _glow.value),
+              blurRadius: 44,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: child,
+      ),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          height: 58,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [widget.accent, AppColors.neonPurple],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(widget.icon, color: Colors.white, size: 24),
+              const SizedBox(width: 8),
+              Text(widget.label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                  )),
+            ],
+          ),
         ),
       ),
     );
