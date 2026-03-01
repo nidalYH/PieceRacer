@@ -156,12 +156,13 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen>
             _statusMessage = 'Buscando rival...';
           });
         }
-      } else {
-        // Fast 1v1 mode
-        imageUrl = 'https://picsum.photos/800/800'; // Random public image
       }
 
       final roomRepo = ref.read(roomRepositoryProvider);
+
+      // Best-effort cleanup of stale rooms
+      try { await roomRepo.cleanupStaleRooms(); } catch (_) {}
+
       final DocumentReference<Map<String, dynamic>> roomRef = await roomRepo.findOrCreateRoom(
         uid: user.uid,
         mode: widget.mode,
@@ -195,12 +196,21 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen>
     _roomSubscription = roomRef.snapshots().listen(
       (DocumentSnapshot<Map<String, dynamic>> snapshot) {
         final Map<String, dynamic>? data = snapshot.data();
-        if (data == null) {
-          return;
-        }
+        if (data == null) return;
+
         final String status = data['status'] as String? ?? '';
         if (status == 'started' && !_navigatedToGame) {
           _navigateToGame(roomRef.id);
+          return;
+        }
+
+        // Show player count for multi-player rooms
+        if (status == 'waiting' && mounted) {
+          final players = data['players'] as List<dynamic>? ?? [];
+          final maxPlayers = data['maxPlayers'] as int? ?? 2;
+          setState(() {
+            _statusMessage = 'Jugadores ${players.length}/$maxPlayers — esperando...';
+          });
         }
       },
     );

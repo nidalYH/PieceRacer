@@ -206,17 +206,36 @@ class _GameScreenState extends ConsumerState<GameScreen> {
       final data = snapshot.data();
       if (data == null) return;
 
-      // Check if an opponent already finished
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+      // ── Check if an opponent already finished ──
       final results = List<Map<String, dynamic>>.from(
         (data['results'] as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? [],
       );
 
-      final currentUid = FirebaseAuth.instance.currentUser?.uid;
       if (results.isNotEmpty) {
         final opponentFinished = results.any((r) => r['uid'] != currentUid);
         if (opponentFinished) {
-          setState(() => _aiProgress = _totalPieces); // show opponent at 100%
+          setState(() => _aiProgress = _totalPieces);
           _finishGame(playerWon: false);
+          return;
+        }
+      }
+
+      // ── Disconnect detection via heartbeat ──
+      final heartbeats = data['heartbeat'] as Map<String, dynamic>?;
+      if (heartbeats != null && currentUid != null) {
+        for (final entry in heartbeats.entries) {
+          if (entry.key == currentUid) continue; // skip self
+          final ts = entry.value;
+          if (ts is Timestamp) {
+            final diff = DateTime.now().difference(ts.toDate());
+            if (diff.inSeconds > 60) {
+              // Opponent disconnected — auto-win
+              _finishGame(playerWon: true);
+              return;
+            }
+          }
         }
       }
     });
