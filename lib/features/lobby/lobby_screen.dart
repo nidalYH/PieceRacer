@@ -56,68 +56,10 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
   }
 
   Future<void> _startVsAI() async {
-    int gridSize = 3;
-    Difficulty difficulty = Difficulty.normal;
-    AIPersonality personality = AIPersonality.calm;
-
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
-        return AlertDialog(
-          backgroundColor: AppColors.bgCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Text('⚙️ Configurar partida', textAlign: TextAlign.center),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('Tamaño: ${gridSize}x$gridSize',
-                style: const TextStyle(color: AppColors.textGray)),
-            SliderTheme(
-              data: SliderThemeData(
-                activeTrackColor: AppColors.neonCyan,
-                thumbColor: AppColors.neonCyan,
-                inactiveTrackColor: AppColors.bgCardLight,
-                overlayColor: AppColors.neonCyan.withValues(alpha: 0.15),
-              ),
-              child: Slider(
-                value: gridSize.toDouble(), min: 3, max: 8, divisions: 5,
-                onChanged: (v) => setDialogState(() => gridSize = v.toInt())),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<Difficulty>(
-              value: difficulty,
-              dropdownColor: AppColors.bgCard,
-              decoration: InputDecoration(
-                labelText: 'Dificultad IA',
-                labelStyle: const TextStyle(color: AppColors.textGray),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: AppColors.textGray.withValues(alpha: 0.3)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.neonCyan),
-                ),
-              ),
-              items: Difficulty.values
-                  .map((d) => DropdownMenuItem(value: d, child: Text(d.name.toUpperCase())))
-                  .toList(),
-              onChanged: (v) { if (v != null) setDialogState(() => difficulty = v); },
-            ),
-          ]),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: AppColors.textGray)),
-            ),
-            _GradientDialogButton(
-              label: '¡Jugar!',
-              onPressed: () => Navigator.pop(ctx, {
-                'gridSize': gridSize, 'difficulty': difficulty, 'personality': personality,
-              }),
-            ),
-          ],
-        );
-      }),
+      barrierColor: Colors.black.withValues(alpha: 0.75),
+      builder: (_) => const _VsAIConfigDialog(),
     );
     if (result == null || !mounted) return;
     context.goNamed(GameScreen.routeName, extra: {
@@ -140,41 +82,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
     int gridSize = 4;
     final result = await showDialog<int>(
       context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) {
-        return AlertDialog(
-          backgroundColor: AppColors.bgCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Text('📸 Tamaño del puzzle', textAlign: TextAlign.center),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('${gridSize}x$gridSize (${gridSize * gridSize} piezas)',
-                style: const TextStyle(color: AppColors.textGray)),
-            SliderTheme(
-              data: SliderThemeData(
-                activeTrackColor: AppColors.neonGreen,
-                thumbColor: AppColors.neonGreen,
-                inactiveTrackColor: AppColors.bgCardLight,
-                overlayColor: AppColors.neonGreen.withValues(alpha: 0.15),
-              ),
-              child: Slider(
-                value: gridSize.toDouble(), min: 3, max: 8, divisions: 5,
-                onChanged: (v) => setDialogState(() => gridSize = v.toInt())),
-            ),
-          ]),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: AppColors.textGray)),
-            ),
-            _GradientDialogButton(
-              label: '¡Armar!',
-              gradient: const LinearGradient(
-                colors: [AppColors.neonGreen, Color(0xFF059669)],
-              ),
-              onPressed: () => Navigator.pop(ctx, gridSize),
-            ),
-          ],
-        );
-      }),
+      barrierColor: Colors.black.withValues(alpha: 0.75),
+      builder: (_) => _LocalConfigDialog(initialGridSize: gridSize),
     );
     if (result == null || !mounted) return;
     context.goNamed(GameScreen.routeName, extra: {
@@ -512,40 +421,6 @@ class _ModeCardState extends State<_ModeCard>
   }
 }
 
-// ── Gradient dialog button ─────────────────────────────────────────────────
-
-class _GradientDialogButton extends StatelessWidget {
-  const _GradientDialogButton({
-    required this.label,
-    required this.onPressed,
-    this.gradient,
-  });
-
-  final String label;
-  final VoidCallback onPressed;
-  final Gradient? gradient;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          gradient: gradient ?? AppGradients.primaryButton,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: AppShadows.shadowNeon(AppColors.neonCyan, radius: 12),
-        ),
-        child: Text(label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-            )),
-      ),
-    );
-  }
-}
 
 // ── Background orb ────────────────────────────────────────────────────────
 
@@ -564,6 +439,565 @@ class _Orb extends StatelessWidget {
           shape: BoxShape.circle,
           gradient: RadialGradient(
             colors: [color.withValues(alpha: opacity), Colors.transparent],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── VS AI Config Dialog ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _VsAIConfigDialog extends StatefulWidget {
+  const _VsAIConfigDialog();
+
+  @override
+  State<_VsAIConfigDialog> createState() => _VsAIConfigDialogState();
+}
+
+class _VsAIConfigDialogState extends State<_VsAIConfigDialog>
+    with SingleTickerProviderStateMixin {
+  int _gridSize = 3;
+  Difficulty _difficulty = Difficulty.normal;
+  final AIPersonality _personality = AIPersonality.calm;
+
+  // Pulsing glow on the play button
+  late final AnimationController _glowCtrl;
+  late final Animation<double> _glowAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _glowAnim = Tween<double>(begin: 0.6, end: 1.0)
+        .animate(CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF151D35),
+              const Color(0xFF0C1220),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: AppColors.neonCyan.withValues(alpha: 0.18),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.7),
+              blurRadius: 40,
+              offset: const Offset(0, 16),
+            ),
+            BoxShadow(
+              color: AppColors.neonCyan.withValues(alpha: 0.08),
+              blurRadius: 60,
+              offset: Offset.zero,
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ─────────────────────────────────────────────────
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AppColors.neonPurple, Color(0xFF6C3AED)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: AppShadows.shadowNeon(AppColors.neonPurple, radius: 10),
+                  ),
+                  child: const Icon(Icons.smart_toy_outlined, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text(
+                    'Configurar partida',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                  Text('vs. Inteligencia Artificial',
+                      style: TextStyle(
+                        color: AppColors.textGray,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      )),
+                ]),
+              ]),
+
+              const SizedBox(height: 28),
+              _sectionLabel('Tamaño del tablero'),
+              const SizedBox(height: 10),
+
+              // ── Grid size chip picker ───────────────────────────────────
+              _GridSizePicker(
+                selected: _gridSize,
+                onChanged: (v) => setState(() => _gridSize = v),
+              ),
+
+              // Hint text
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Center(
+                  child: Text(
+                    '${_gridSize}x$_gridSize · ${_gridSize * _gridSize} piezas · ${_difficultyHint(_gridSize)}',
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+              _sectionLabel('Dificultad IA'),
+              const SizedBox(height: 10),
+
+              // ── Difficulty chip selector ────────────────────────────────
+              _DifficultyPicker(
+                selected: _difficulty,
+                onChanged: (v) => setState(() => _difficulty = v),
+              ),
+
+              const SizedBox(height: 32),
+
+              // ── Action buttons ──────────────────────────────────────────
+              Row(children: [
+                // Ghost cancel
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      height: 52,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.textGray.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: const Text('Cancelar',
+                          style: TextStyle(
+                            color: AppColors.textGray,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          )),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Pulsing play button
+                Expanded(
+                  flex: 2,
+                  child: AnimatedBuilder(
+                    animation: _glowAnim,
+                    builder: (_, child) => Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.neonCyan.withValues(alpha: 0.55 * _glowAnim.value),
+                            blurRadius: 24,
+                            spreadRadius: -2,
+                          ),
+                          BoxShadow(
+                            color: AppColors.neonPurple.withValues(alpha: 0.30 * _glowAnim.value),
+                            blurRadius: 40,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: child,
+                    ),
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context, {
+                        'gridSize': _gridSize,
+                        'difficulty': _difficulty,
+                        'personality': _personality,
+                      }),
+                      child: Container(
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          gradient: AppGradients.primaryButton,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22),
+                            SizedBox(width: 6),
+                            Text('¡Jugar!',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 17,
+                                  letterSpacing: 0.3,
+                                )),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.textGray,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.2,
+        ),
+      );
+
+  String _difficultyHint(int size) {
+    if (size <= 3) return 'Principiante';
+    if (size <= 5) return 'Intermedio';
+    return 'Experto';
+  }
+}
+
+// ── Grid size chip row ────────────────────────────────────────────────────
+
+class _GridSizePicker extends StatelessWidget {
+  const _GridSizePicker({required this.selected, required this.onChanged});
+
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [3, 4, 5, 6, 7, 8].map((size) {
+        final isActive = size == selected;
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onChanged(size);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: isActive
+                  ? AppGradients.primaryButton
+                  : null,
+              color: isActive ? null : AppColors.bgCardLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isActive
+                    ? AppColors.neonCyan.withValues(alpha: 0.7)
+                    : AppColors.textMuted.withValues(alpha: 0.3),
+                width: isActive ? 1.5 : 1,
+              ),
+              boxShadow: isActive
+                  ? AppShadows.shadowNeon(AppColors.neonCyan, radius: 12)
+                  : [],
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '${size}x$size',
+              style: TextStyle(
+                color: isActive ? Colors.white : AppColors.textGray,
+                fontSize: 11,
+                fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ── Difficulty chip selector ──────────────────────────────────────────────
+
+class _DifficultyPicker extends StatelessWidget {
+  const _DifficultyPicker({required this.selected, required this.onChanged});
+
+  final Difficulty selected;
+  final ValueChanged<Difficulty> onChanged;
+
+  static const _config = <Difficulty, (String, String, Color)>{
+    Difficulty.easy:   ('⚪', 'FÁCIL',   Color(0xFF4ADE80)),
+    Difficulty.normal: ('🟡', 'NORMAL',  Color(0xFFFBBF24)),
+    Difficulty.hard:   ('🔴', 'DIFÍCIL', Color(0xFFF87171)),
+    Difficulty.expert: ('💀', 'EXPERTO', Color(0xFFBF5AF2)),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: _config.entries.map((entry) {
+        final d = entry.key;
+        final (emoji, label, color) = entry.value;
+        final isActive = d == selected;
+
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onChanged(d);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 70,
+            height: 68,
+            decoration: BoxDecoration(
+              color: isActive
+                  ? color.withValues(alpha: 0.18)
+                  : AppColors.bgCardLight,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isActive
+                    ? color.withValues(alpha: 0.65)
+                    : AppColors.textMuted.withValues(alpha: 0.25),
+                width: isActive ? 1.5 : 1,
+              ),
+              boxShadow: isActive
+                  ? [BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 12)]
+                  : [],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 20)),
+                const SizedBox(height: 4),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isActive ? color : AppColors.textGray,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    )),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── Local Config Dialog ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _LocalConfigDialog extends StatefulWidget {
+  const _LocalConfigDialog({this.initialGridSize = 4});
+  final int initialGridSize;
+
+  @override
+  State<_LocalConfigDialog> createState() => _LocalConfigDialogState();
+}
+
+class _LocalConfigDialogState extends State<_LocalConfigDialog>
+    with SingleTickerProviderStateMixin {
+  late int _gridSize;
+
+  late final AnimationController _glowCtrl;
+  late final Animation<double> _glowAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _gridSize = widget.initialGridSize;
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+    _glowAnim = Tween<double>(begin: 0.6, end: 1.0)
+        .animate(CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0E1D2A), Color(0xFF0A1318)],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: AppColors.neonGreen.withValues(alpha: 0.18),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.7), blurRadius: 40, offset: const Offset(0, 16)),
+            BoxShadow(color: AppColors.neonGreen.withValues(alpha: 0.07), blurRadius: 60),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        colors: [AppColors.neonGreen, Color(0xFF059669)]),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: AppShadows.shadowNeon(AppColors.neonGreen, radius: 10),
+                  ),
+                  child: const Icon(Icons.photo_library_outlined, color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Tamaño del puzzle',
+                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                  Text('Tu foto, tus reglas',
+                      style: TextStyle(color: AppColors.textGray, fontSize: 12, fontWeight: FontWeight.w500)),
+                ]),
+              ]),
+
+              const SizedBox(height: 28),
+              const Text('TABLERO', style: TextStyle(
+                color: AppColors.textGray, fontSize: 12,
+                fontWeight: FontWeight.w700, letterSpacing: 1.2,
+              )),
+              const SizedBox(height: 10),
+
+              _GridSizePicker(
+                selected: _gridSize,
+                onChanged: (v) => setState(() => _gridSize = v),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Center(
+                  child: Text(
+                    '$_gridSize×$_gridSize · ${_gridSize * _gridSize} piezas',
+                    style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              Row(children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      height: 52,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.textGray.withValues(alpha: 0.25)),
+                      ),
+                      child: const Text('Cancelar',
+                          style: TextStyle(color: AppColors.textGray, fontWeight: FontWeight.w600, fontSize: 15)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: AnimatedBuilder(
+                    animation: _glowAnim,
+                    builder: (_, child) => Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.neonGreen.withValues(alpha: 0.55 * _glowAnim.value),
+                            blurRadius: 24,
+                            spreadRadius: -2,
+                          ),
+                        ],
+                      ),
+                      child: child,
+                    ),
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(context, _gridSize),
+                      child: Container(
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [AppColors.neonGreen, Color(0xFF059669)],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 20),
+                            SizedBox(width: 6),
+                            Text('¡Armar!',
+                                style: TextStyle(
+                                  color: Colors.white, fontWeight: FontWeight.w800,
+                                  fontSize: 17, letterSpacing: 0.3,
+                                )),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ],
           ),
         ),
       ),
