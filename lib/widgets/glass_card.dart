@@ -2,15 +2,16 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../core/theme/design_system.dart';
 
+/// A dark-tinted frosted-glass card with optional neon glow border.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     required this.child,
     this.width,
     this.height,
     this.padding = const EdgeInsets.all(AppSpacing.md),
-    this.borderRadius = AppSpacing.radiusLg,
-    this.sigma = 6.0,
-    this.opacity = 0.85,
+    this.borderRadius = AppSpacing.radiusXl,
+    this.sigma = 10.0,
+    this.glowColor,
     super.key,
   });
 
@@ -20,10 +21,13 @@ class GlassCard extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final double borderRadius;
   final double sigma;
-  final double opacity;
+
+  /// Optional neon accent glow applied to the card border shadow.
+  final Color? glowColor;
 
   @override
   Widget build(BuildContext context) {
+    final glow = glowColor;
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
@@ -33,13 +37,26 @@ class GlassCard extends StatelessWidget {
           height: height,
           padding: padding,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(opacity),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 1,
+            // Dark tinted glass — correct for a dark gaming UI
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.bgCardLight.withValues(alpha: 0.75),
+                AppColors.bgCard.withValues(alpha: 0.60),
+              ],
             ),
-            boxShadow: AppShadows.shadowMd,
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border(
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.10), width: 1),
+              left: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 1),
+              right: BorderSide(color: Colors.black.withValues(alpha: 0.20), width: 1),
+              bottom: BorderSide(color: Colors.black.withValues(alpha: 0.25), width: 1),
+            ),
+            boxShadow: [
+              ...AppShadows.shadowMd,
+              if (glow != null) ...AppShadows.shadowNeon(glow, radius: 18),
+            ],
           ),
           child: child,
         ),
