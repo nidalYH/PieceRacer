@@ -20,6 +20,7 @@ import '../../core/theme/design_system.dart';
 import '../../core/utils/time_utils.dart';
 import '../lobby/lobby_screen.dart';
 import 'data/room_repository.dart';
+import 'services/realtime_sync_service.dart';
 import 'widgets/puzzle_board.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
@@ -67,6 +68,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
 
   // Online mode state
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roomSubscription;
+  RealtimeSyncService? _syncService;
 
   late AudioPlayer _audioPlayer;
   late ConfettiController _confettiController;
@@ -91,6 +93,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _gameTimer?.cancel();
     _heartbeatTimer?.cancel();
     _roomSubscription?.cancel();
+    _syncService?.dispose();
     _aiController?.stop();
     _audioPlayer.dispose();
     _confettiController.dispose();
@@ -141,6 +144,13 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     if (_isOnline) {
       _listenToRoom();
       _startHeartbeat();
+    }
+    // Create sync service for 2v2 co-op
+    if (widget.mode == PuzzleMode.twoVsTwo) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        _syncService = RealtimeSyncService(roomId: widget.roomId, uid: uid);
+      }
     }
   }
 
@@ -396,6 +406,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   rows: widget.gridSize,
                   cols: widget.gridSize,
                   seed: _puzzleSeed,
+                  syncService: _syncService,
                   onPieceLocked: _onPieceLocked,
                   onSolved: _onSolved,
                 ),

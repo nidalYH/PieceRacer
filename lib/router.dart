@@ -61,10 +61,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: ResultsScreen.routePath,
         name: ResultsScreen.routeName,
         builder: (context, state) {
-          final extra = state.extra as Map<String, String>?;
+          final extra = state.extra as Map<String, dynamic>?;
           return ResultsScreen(
-            roomId: extra?['roomId'] ?? '',
-            myUid: extra?['myUid'] ?? '',
+            roomId: extra?['roomId'] as String? ?? '',
+            myUid: extra?['myUid'] as String? ?? '',
+            mode: extra?['mode'] as PuzzleMode?,
           );
         },
       ),

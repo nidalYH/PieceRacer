@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -231,5 +232,134 @@ class RoomRepository {
       deleted++;
     }
     return deleted;
+  }
+
+  // ── Friends Mode: Room Codes ──────────────────────────────────────────────
+
+  static const _codeChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1
+
+  /// Generate a unique 6-character room code.
+  String generateRoomCode() {
+    final random = Random();
+    return List.generate(6, (_) => _codeChars[random.nextInt(_codeChars.length)]).join();
+  }
+
+  /// Create a private Friends room with an invite code.
+  Future<DocumentReference<Map<String, dynamic>>> createPrivateRoom({
+    required String uid,
+    required int gridSize,
+    required int totalRounds,
+    String? customImageUrl,
+  }) async {
+    final code = generateRoomCode();
+    final puzzleSeed = DateTime.now().millisecondsSinceEpoch;
+    final imageUrl = customImageUrl ?? deterministicImageUrl(puzzleSeed);
+
+    return await _rooms.add({
+      'status': 'waiting',
+      'mode': PuzzleMode.friends.name,
+      'gridSize': gridSize,
+      'maxPlayers': 4,
+      'roomCode': code,
+      'hostUid': uid,
+      'players': <String>[uid],
+      'puzzleData': <String, dynamic>{
+        'imageUrl': imageUrl,
+        'puzzleSeed': puzzleSeed,
+      },
+      'createdAt': FieldValue.serverTimestamp(),
+      'results': <Map<String, dynamic>>[],
+      // Multi-round tracking
+      'totalRounds': totalRounds,
+      'currentRound': 1,
+      'scores': <String, int>{uid: 0},
+      // Photo queue (list of imageUrls, one per round)
+      'photoQueue': <String>[imageUrl],
+    });
+  }
+
+  /// Join a private room by its invite code.
+  /// Returns the room reference, or null if not found / full / already started.
+  Future<DocumentReference<Map<String, dynamic>>?> joinByCode({
+    required String code,
+    required String uid,
+  }) async {
+    final snapshot = await _rooms
+        .where('roomCode', isEqualTo: code.toUpperCase())
+        .where('status', isEqualTo: 'waiting')
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    final docRef = snapshot.docs.first.reference;
+
+    bool joined = false;
+    await _firestore.runTransaction((transaction) async {
+      final snap = await transaction.get(docRef);
+      if (!snap.exists) return;
+
+      final data = snap.data()!;
+      final players = List<String>.from(data['players'] as List<dynamic>);
+      final maxPlayers = data['maxPlayers'] as int? ?? 4;
+
+      if (players.contains(uid) || players.length >= maxPlayers) return;
+
+      players.add(uid);
+      final scores = Map<String, int>.from(
+        (data['scores'] as Map?)?.cast<String, int>() ?? {},
+      );
+      scores[uid] = 0;
+
+      transaction.update(docRef, {
+        'players': players,
+        'scores': scores,
+      });
+      joined = true;
+    });
+
+    return joined ? docRef : null;
+  }
+
+  /// Start a Friends room (host action).
+  Future<void> startFriendsRoom(String roomId) async {
+    await _rooms.doc(roomId).update({
+      'status': 'started',
+      'startTime': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Advance to the next round in a Friends match.
+  /// Returns false if all rounds are complete.
+  Future<bool> advanceRound(String roomId, {String? nextImageUrl}) async {
+    bool hasMore = false;
+
+    await _firestore.runTransaction((transaction) async {
+      final snap = await transaction.get(_rooms.doc(roomId));
+      if (!snap.exists) return;
+
+      final data = snap.data()!;
+      final current = data['currentRound'] as int? ?? 1;
+      final total = data['totalRounds'] as int? ?? 1;
+
+      if (current >= total) {
+        transaction.update(_rooms.doc(roomId), {'status': 'finished'});
+        hasMore = false;
+        return;
+      }
+
+      final nextSeed = DateTime.now().millisecondsSinceEpoch;
+      final imageUrl = nextImageUrl ?? deterministicImageUrl(nextSeed);
+
+      transaction.update(_rooms.doc(roomId), {
+        'currentRound': current + 1,
+        'puzzleData.imageUrl': imageUrl,
+        'puzzleData.puzzleSeed': nextSeed,
+        'results': <Map<String, dynamic>>[], // clear results for next round
+      });
+      hasMore = true;
+    });
+
+    return hasMore;
   }
 }

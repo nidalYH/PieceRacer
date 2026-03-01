@@ -11,12 +11,14 @@ import '../../widgets/jigsaw_primary_button.dart';
 import '../lobby/lobby_screen.dart';
 import '../matchmaking/matchmaking_screen.dart';
 
+import '../../core/enums/puzzle_mode.dart';
 import '../game/data/room_repository.dart';
 
 class ResultsScreen extends ConsumerWidget {
   const ResultsScreen({
     required this.roomId,
     required this.myUid,
+    this.mode,
     super.key,
   });
 
@@ -25,6 +27,7 @@ class ResultsScreen extends ConsumerWidget {
 
   final String roomId;
   final String myUid;
+  final PuzzleMode? mode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -144,12 +147,6 @@ class ResultsScreen extends ConsumerWidget {
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                      const SizedBox(height: AppSpacing.xs),
-                      if (myTimeSeconds != null)
-                        Text(
-                          'Precisión: ${(100 - (myTimeSeconds / 10)).clamp(50, 100).toInt()}%',
-                          style: context.textTheme.bodyMedium,
-                        ),
                       const SizedBox(height: AppSpacing.xl),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -197,12 +194,13 @@ class ResultsScreen extends ConsumerWidget {
                         ),
                         
                       const SizedBox(height: AppSpacing.xl),
-                      const _RewardsRow(),
-                      const SizedBox(height: AppSpacing.xl),
                       JigsawPrimaryButton(
-                        label: '🔁 REVANCHA (15s)',
+                        label: '🔁 REVANCHA',
                         onPressed: () {
-                          context.goNamed(MatchmakingScreen.routeName);
+                          context.goNamed(
+                            MatchmakingScreen.routeName,
+                            extra: {'mode': mode ?? PuzzleMode.oneVsOne},
+                          );
                         },
                       ),
                       const SizedBox(height: AppSpacing.md),

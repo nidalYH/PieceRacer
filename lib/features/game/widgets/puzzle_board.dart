@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/puzzle_piece.dart';
 import '../services/puzzle_generator.dart';
+import '../services/realtime_sync_service.dart';
 
 class PuzzleBoard extends StatefulWidget {
   const PuzzleBoard({
@@ -15,6 +16,7 @@ class PuzzleBoard extends StatefulWidget {
     required this.onPieceLocked,
     required this.onSolved,
     this.seed,
+    this.syncService,
     super.key,
   });
 
@@ -24,6 +26,10 @@ class PuzzleBoard extends StatefulWidget {
   final void Function(int lockedCount, int total) onPieceLocked;
   final void Function() onSolved;
   final int? seed;
+
+  /// Optional — provided for 2v2 co-op mode. When non-null, piece movements
+  /// are broadcast and remote updates are applied.
+  final RealtimeSyncService? syncService;
 
   @override
   State<PuzzleBoard> createState() => _PuzzleBoardState();
@@ -40,6 +46,63 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
   double _boardOffsetX = 0;
   double _boardOffsetY = 0;
   double _trayY = 0;
+
+  // Pieces currently held by remote players (show as "locked" visually)
+  final Set<int> _remoteHeldPieces = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _setupSyncCallbacks();
+  }
+
+  @override
+  void dispose() {
+    widget.syncService?.dispose();
+    super.dispose();
+  }
+
+  void _setupSyncCallbacks() {
+    final sync = widget.syncService;
+    if (sync == null) return;
+
+    sync.onPieceUpdated = (pieceId, data) {
+      if (!mounted) return;
+      final piece = _pieces.firstWhere((p) => p.id == pieceId, orElse: () => _pieces.first);
+      if (piece.id != pieceId) return;
+
+      setState(() {
+        final x = (data['x'] as num?)?.toDouble();
+        final y = (data['y'] as num?)?.toDouble();
+        final locked = data['locked'] as bool? ?? false;
+        final heldBy = data['heldBy'] as String?;
+
+        if (x != null && y != null) {
+          piece.currentPosition = Offset(x, y);
+        }
+        if (locked && !piece.isLocked) {
+          piece.currentPosition = piece.correctPosition;
+          piece.rotation = 0.0;
+          piece.isLocked = true;
+          HapticFeedback.lightImpact();
+
+          final lockedCount = _pieces.where((p) => p.isLocked).length;
+          widget.onPieceLocked(lockedCount, _pieces.length);
+          if (_pieces.every((p) => p.isLocked)) {
+            widget.onSolved();
+          }
+        }
+
+        if (heldBy != null && heldBy != sync.uid) {
+          _remoteHeldPieces.add(pieceId);
+        } else {
+          _remoteHeldPieces.remove(pieceId);
+        }
+      });
+    };
+
+    sync.startListening();
+  }
 
   void _initPieces(double canvasWidth, double canvasHeight) {
     if (_initialized) return;
@@ -79,10 +142,53 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
     }
 
     setState(() => _pieces = generated);
-    
+
     // Notify parent of initial count
     final locked = _pieces.where((p) => p.isLocked).length;
     widget.onPieceLocked(locked, _pieces.length);
+
+    // For 2v2: initialize RTDB with piece positions (first player writes)
+    _initSyncPiecePositions();
+  }
+
+  Future<void> _initSyncPiecePositions() async {
+    final sync = widget.syncService;
+    if (sync == null) return;
+
+    // Check if pieces are already initialized by another player
+    final existing = await sync.readPieceStates();
+    if (existing != null && existing.isNotEmpty) {
+      // Apply remote state
+      setState(() {
+        for (final entry in existing.entries) {
+          final piece = _pieces.firstWhere((p) => p.id == entry.key, orElse: () => _pieces.first);
+          if (piece.id != entry.key) continue;
+          final data = entry.value;
+          final x = (data['x'] as num?)?.toDouble();
+          final y = (data['y'] as num?)?.toDouble();
+          final locked = data['locked'] as bool? ?? false;
+          if (x != null && y != null) {
+            piece.currentPosition = Offset(x, y);
+          }
+          if (locked) {
+            piece.currentPosition = piece.correctPosition;
+            piece.rotation = 0.0;
+            piece.isLocked = true;
+          }
+        }
+      });
+      return;
+    }
+
+    // First player: write initial positions
+    final positions = <int, Map<String, double>>{};
+    for (final piece in _pieces) {
+      positions[piece.id] = {
+        'x': piece.currentPosition.dx,
+        'y': piece.currentPosition.dy,
+      };
+    }
+    await sync.initializePieces(positions);
   }
 
   PuzzlePiece? _hitTest(Offset pos) {
@@ -91,6 +197,8 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
     for (int i = _pieces.length - 1; i >= 0; i--) {
       final p = _pieces[i];
       if (p.isLocked) continue;
+      // In co-op: skip pieces held by remote players
+      if (_remoteHeldPieces.contains(p.id)) continue;
       if (Rect.fromLTWH(p.currentPosition.dx, p.currentPosition.dy, pw, ph)
           .inflate(10)
           .contains(pos)) return p;
@@ -105,6 +213,25 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
     final piece = _hitTest(local);
     if (piece == null) return;
 
+    // For co-op: try to claim the piece atomically
+    final sync = widget.syncService;
+    if (sync != null) {
+      sync.tryGrabPiece(piece.id).then((claimed) {
+        if (!claimed || !mounted) return;
+        setState(() {
+          _activeGroup = piece.groupId != null
+              ? _pieces.where((p) => p.groupId == piece.groupId).toList()
+              : [piece];
+          for (final p in _activeGroup) {
+            _pieces.remove(p);
+            _pieces.add(p);
+          }
+        });
+      });
+      return;
+    }
+
+    // Normal (non-co-op) mode
     setState(() {
       _activeGroup = piece.groupId != null
           ? _pieces.where((p) => p.groupId == piece.groupId).toList()
@@ -123,6 +250,14 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
         p.updatePosition(d.delta);
       }
     });
+
+    // Broadcast movement for co-op
+    final sync = widget.syncService;
+    if (sync != null) {
+      for (final p in _activeGroup) {
+        sync.movePiece(p.id, p.currentPosition.dx, p.currentPosition.dy);
+      }
+    }
   }
 
   void _onPanEnd(DragEndDetails d) {
@@ -138,6 +273,8 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
       if (!was && p.isLocked) anyLocked = true;
     }
 
+    final sync = widget.syncService;
+
     if (anyLocked) {
       for (final p in _activeGroup) {
         if (!p.isLocked) {
@@ -145,12 +282,19 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
           p.rotation = 0.0;
           p.isLocked = true;
         }
+        // Broadcast lock to co-op
+        sync?.lockPiece(p.id, p.correctPosition.dx, p.correctPosition.dy);
       }
       HapticFeedback.lightImpact();
       final locked = _pieces.where((p) => p.isLocked).length;
       widget.onPieceLocked(locked, _pieces.length);
       if (_pieces.every((p) => p.isLocked)) {
         widget.onSolved();
+      }
+    } else {
+      // Release pieces in co-op
+      for (final p in _activeGroup) {
+        sync?.releasePiece(p.id, p.currentPosition.dx, p.currentPosition.dy);
       }
     }
 
@@ -194,6 +338,7 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
             boardOffsetY: _boardOffsetY,
             trayY: _trayY,
             canvasWidth: w,
+            remoteHeldPieces: _remoteHeldPieces,
           ),
         ),
       );
@@ -212,12 +357,14 @@ class _PuzzlePainter extends CustomPainter {
     required this.boardOffsetY,
     required this.trayY,
     required this.canvasWidth,
+    required this.remoteHeldPieces,
   });
 
   final ui.Image image;
   final List<PuzzlePiece> pieces;
   final int rows, cols;
   final double boardSize, boardOffsetX, boardOffsetY, trayY, canvasWidth;
+  final Set<int> remoteHeldPieces;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -276,6 +423,8 @@ class _PuzzlePainter extends CustomPainter {
     const double tabRatio = 0.25;
 
     for (final piece in pieces) {
+      final bool isRemoteHeld = remoteHeldPieces.contains(piece.id);
+
       canvas.save();
       canvas.translate(
         piece.currentPosition.dx + pw / 2,
@@ -309,19 +458,30 @@ class _PuzzlePainter extends CustomPainter {
         // Jigsaw clip + expanded image
         canvas.save();
         canvas.clipPath(piece.customPath!);
+        // Dim pieces held by remote player
+        final imgPaint = isRemoteHeld ? (Paint()..color = Colors.white.withOpacity(0.5)) : pp;
         canvas.drawImageRect(
           image,
           Rect.fromLTRB(srcL, srcT, srcR, srcB),
           Rect.fromLTRB(dstL, dstT, dstR, dstB),
-          pp,
+          imgPaint,
         );
         canvas.restore();
 
-        // Border
+        // Border — yellow for remote-held, green for locked, cyan for free
+        final Color borderColor;
+        if (isRemoteHeld) {
+          borderColor = AppColors.neonOrange.withOpacity(0.7);
+        } else if (piece.isLocked) {
+          borderColor = AppColors.neonGreen.withOpacity(0.6);
+        } else {
+          borderColor = AppColors.neonCyan.withOpacity(0.35);
+        }
+
         canvas.drawPath(piece.customPath!, Paint()
-          ..color = piece.isLocked ? AppColors.neonGreen.withOpacity(0.6) : AppColors.neonCyan.withOpacity(0.35)
+          ..color = borderColor
           ..style = PaintingStyle.stroke
-          ..strokeWidth = piece.isLocked ? 2 : 1.2);
+          ..strokeWidth = piece.isLocked ? 2 : (isRemoteHeld ? 2 : 1.2));
       } else {
         final dst = Rect.fromLTWH(0, 0, pw, ph);
         canvas.drawImageRect(image, piece.sourceRect, dst, pp);
