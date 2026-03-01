@@ -17,12 +17,15 @@ class PuzzleGenerator {
   /// Divides an image into [rows] x [cols] pieces.
   /// [boardSize] is the physical size of the canvas where the puzzle is played.
   /// [scatterArea] is where the pieces will be initially randomly placed.
+  /// [seed] — when non-null, produces a deterministic puzzle (same edges + scatter).
+  ///          Online modes MUST pass the seed from the room document.
   static List<PuzzlePiece> generatePieces({
     required ui.Image image,
     required int rows,
     required int cols,
     required Size boardSize,
     required Rect scatterArea,
+    int? seed,
   }) {
     final List<PuzzlePiece> flatPiecesList = [];
     final double pieceSourceWidth = image.width / cols;
@@ -31,7 +34,7 @@ class PuzzleGenerator {
     final double pieceDisplayWidth = boardSize.width / cols;
     final double pieceDisplayHeight = boardSize.height / rows;
 
-    final random = Random();
+    final random = seed != null ? Random(seed) : Random();
     
     // We will build a 2D array of pieces to easily link edges
     final pieces = List.generate(

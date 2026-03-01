@@ -4,7 +4,9 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:confetti/confetti.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +19,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/design_system.dart';
 import '../../core/utils/time_utils.dart';
 import '../lobby/lobby_screen.dart';
+import 'data/room_repository.dart';
 import 'widgets/puzzle_board.dart';
 
 class GameScreen extends ConsumerStatefulWidget {
@@ -49,6 +52,9 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   bool _isLoadingImage = true;
   String? _imageError;
 
+  // Puzzle seed for deterministic generation (online modes)
+  int? _puzzleSeed;
+
   // Game state managed locally
   int _lockedCount = 0;
   int _totalPieces = 0;
@@ -56,10 +62,19 @@ class _GameScreenState extends ConsumerState<GameScreen> {
   int _aiProgress = 0;
   bool _isFinished = false;
   Timer? _gameTimer;
+  Timer? _heartbeatTimer;
   AIController? _aiController;
+
+  // Online mode state
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roomSubscription;
 
   late AudioPlayer _audioPlayer;
   late ConfettiController _confettiController;
+
+  bool get _isOnline =>
+      widget.mode == PuzzleMode.oneVsOne ||
+      widget.mode == PuzzleMode.twoVsTwo ||
+      widget.mode == PuzzleMode.friends;
 
   @override
   void initState() {
@@ -68,55 +83,64 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _audioPlayer = AudioPlayer();
     _confettiController = ConfettiController(duration: const Duration(seconds: 3));
     _loadPuzzleImage();
-    _startTimer();
-    _startAI();
+    // Timer and AI start AFTER image finishes loading — see _onImageReady()
   }
 
   @override
   void dispose() {
     _gameTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _roomSubscription?.cancel();
     _aiController?.stop();
     _audioPlayer.dispose();
     _confettiController.dispose();
     super.dispose();
   }
 
-  void _startTimer() {
-    _gameTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_isFinished) return;
-      setState(() => _elapsedSeconds++);
-    });
-  }
-
-  void _startAI() {
-    if (widget.mode != PuzzleMode.vsAI) return;
-    _aiController = AIController(
-      totalPieces: _totalPieces,
-      difficulty: widget.aiDifficulty ?? Difficulty.normal,
-      personality: widget.aiPersonality ?? AIPersonality.calm,
-      onProgressUpdated: (completed) {
-        if (!mounted || _isFinished) return;
-        setState(() => _aiProgress = completed);
-        if (completed >= _totalPieces) _finishGame(playerWon: false);
-      },
-      onFinished: () {
-        if (!mounted || _isFinished) return;
-        _finishGame(playerWon: false);
-      },
-    );
-    _aiController!.start();
-  }
+  // ── Image loading ────────────────────────────────────────────────────────
 
   Future<void> _loadPuzzleImage() async {
     try {
       if (widget.galleryImageBytes != null) {
+        // Local/friends mode with gallery image
         _puzzleImage = await _decodeBytes(widget.galleryImageBytes!);
+      } else if (_isOnline) {
+        // Online modes — fetch room doc and load shared image
+        final roomRepo = ref.read(roomRepositoryProvider);
+        final snapshot = await roomRepo.getRoom(widget.roomId);
+        final data = snapshot.data();
+        final puzzleData = data?['puzzleData'] as Map<String, dynamic>?;
+        final imageUrl = puzzleData?['imageUrl'] as String?;
+        _puzzleSeed = puzzleData?['puzzleSeed'] as int?;
+
+        if (imageUrl != null) {
+          _puzzleImage = await _loadImage(imageUrl);
+        } else {
+          _puzzleImage = await _loadImage('assets/images/puzzle_1.png');
+        }
       } else {
+        // Fallback: local asset
         _puzzleImage = await _loadImage('assets/images/puzzle_1.png');
       }
-      if (mounted) setState(() => _isLoadingImage = false);
+
+      if (mounted) {
+        setState(() => _isLoadingImage = false);
+        _onImageReady();
+      }
     } catch (e) {
       if (mounted) setState(() { _imageError = '$e'; _isLoadingImage = false; });
+    }
+  }
+
+  /// Called only AFTER the image is loaded — starts the actual game.
+  void _onImageReady() {
+    _startTimer();
+    if (widget.mode == PuzzleMode.vsAI) {
+      _startAI();
+    }
+    if (_isOnline) {
+      _listenToRoom();
+      _startHeartbeat();
     }
   }
 
@@ -144,6 +168,75 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     return completer.future;
   }
 
+  // ── Timer ────────────────────────────────────────────────────────────────
+
+  void _startTimer() {
+    _gameTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_isFinished) return;
+      setState(() => _elapsedSeconds++);
+    });
+  }
+
+  // ── AI (vs AI mode only) ─────────────────────────────────────────────────
+
+  void _startAI() {
+    _aiController = AIController(
+      totalPieces: _totalPieces,
+      difficulty: widget.aiDifficulty ?? Difficulty.normal,
+      personality: widget.aiPersonality ?? AIPersonality.calm,
+      onProgressUpdated: (completed) {
+        if (!mounted || _isFinished) return;
+        setState(() => _aiProgress = completed);
+        if (completed >= _totalPieces) _finishGame(playerWon: false);
+      },
+      onFinished: () {
+        if (!mounted || _isFinished) return;
+        _finishGame(playerWon: false);
+      },
+    );
+    _aiController!.start();
+  }
+
+  // ── Online mode: room listener & heartbeat ───────────────────────────────
+
+  void _listenToRoom() {
+    final roomRepo = ref.read(roomRepositoryProvider);
+    _roomSubscription = roomRepo.watchRoom(widget.roomId).listen((snapshot) {
+      if (!mounted || !snapshot.exists || _isFinished) return;
+      final data = snapshot.data();
+      if (data == null) return;
+
+      // Check if an opponent already finished
+      final results = List<Map<String, dynamic>>.from(
+        (data['results'] as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map)) ?? [],
+      );
+
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (results.isNotEmpty) {
+        final opponentFinished = results.any((r) => r['uid'] != currentUid);
+        if (opponentFinished) {
+          setState(() => _aiProgress = _totalPieces); // show opponent at 100%
+          _finishGame(playerWon: false);
+        }
+      }
+    });
+  }
+
+  void _startHeartbeat() {
+    final roomRepo = ref.read(roomRepositoryProvider);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (_isFinished) return;
+      try {
+        await roomRepo.syncUserTime(widget.roomId, uid, _elapsedSeconds);
+      } catch (_) {}
+    });
+  }
+
+  // ── Piece callbacks ──────────────────────────────────────────────────────
+
   void _onPieceLocked(int locked, int total) {
     setState(() {
       _lockedCount = locked;
@@ -156,17 +249,36 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     _finishGame(playerWon: true);
   }
 
-  void _finishGame({required bool playerWon}) {
+  // ── Finish logic ─────────────────────────────────────────────────────────
+
+  Future<void> _finishGame({required bool playerWon}) async {
     if (_isFinished) return;
     setState(() => _isFinished = true);
     _gameTimer?.cancel();
+    _heartbeatTimer?.cancel();
     _aiController?.stop();
+    _roomSubscription?.cancel();
+
     if (playerWon) {
       _confettiController.play();
       try { _audioPlayer.play(AssetSource('audio/win.wav')); } catch (_) {}
     }
+
+    // Submit result to Firestore for online modes
+    if (_isOnline && playerWon) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        try {
+          final roomRepo = ref.read(roomRepositoryProvider);
+          await roomRepo.submitResult(widget.roomId, uid, _elapsedSeconds);
+        } catch (_) {}
+      }
+    }
+
     _showFinishDialog(playerWon);
   }
+
+  // ── UI ───────────────────────────────────────────────────────────────────
 
   String get _modeLabel {
     switch (widget.mode) {
@@ -178,7 +290,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
     }
   }
 
-  bool get _showRival => widget.mode == PuzzleMode.vsAI;
+  bool get _showRival => widget.mode == PuzzleMode.vsAI || _isOnline;
 
   @override
   Widget build(BuildContext context) {
@@ -221,7 +333,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppColors.neonGreen.withOpacity(0.15),
+                    color: AppColors.neonGreen.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text('$_lockedCount/$_totalPieces',
@@ -229,7 +341,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 ),
               ]),
             ),
-            // Progress bars
+            // Player progress bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ClipRRect(
@@ -240,6 +352,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                 ),
               ),
             ),
+            // Opponent progress bar
             if (_showRival) ...[
               const SizedBox(height: 4),
               Padding(
@@ -263,6 +376,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
                   image: _puzzleImage!,
                   rows: widget.gridSize,
                   cols: widget.gridSize,
+                  seed: _puzzleSeed,
                   onPieceLocked: _onPieceLocked,
                   onSolved: _onSolved,
                 ),
@@ -294,7 +408,7 @@ class _GameScreenState extends ConsumerState<GameScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(won ? '🎉 ¡Ganaste!' : '😢 Perdiste', textAlign: TextAlign.center),
         content: Text(
-          won ? 'Tiempo: ${TimeUtils.formatSeconds(_elapsedSeconds)}' : 'La IA terminó primero. ¡Inténtalo de nuevo!',
+          won ? 'Tiempo: ${TimeUtils.formatSeconds(_elapsedSeconds)}' : 'Tu rival terminó primero. ¡Inténtalo de nuevo!',
           textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textGray),
         ),
         actions: [

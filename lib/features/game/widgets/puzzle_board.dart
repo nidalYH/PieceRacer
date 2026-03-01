@@ -14,6 +14,7 @@ class PuzzleBoard extends StatefulWidget {
     required this.cols,
     required this.onPieceLocked,
     required this.onSolved,
+    this.seed,
     super.key,
   });
 
@@ -22,6 +23,7 @@ class PuzzleBoard extends StatefulWidget {
   final int cols;
   final void Function(int lockedCount, int total) onPieceLocked;
   final void Function() onSolved;
+  final int? seed;
 
   @override
   State<PuzzleBoard> createState() => _PuzzleBoardState();
@@ -65,6 +67,7 @@ class _PuzzleBoardState extends State<PuzzleBoard> {
       cols: widget.cols,
       boardSize: Size(_boardSize, _boardSize),
       scatterArea: scatterArea,
+      seed: widget.seed,
     );
 
     // Offset correctPositions to match board placement on canvas
